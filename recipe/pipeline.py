@@ -50,9 +50,9 @@ class Pipeline(pangeo_forge.AbstractPipeline):
         default=pd.date_range("1981-09-01", "1981-09-10", freq="D").strftime("%Y-%m-%d").tolist(),
     )
     cache_location = Parameter(
-        "cache_location", default=f"gs://pangeo-forge-scratch/cache/{name}.zarr"
+        "cache_location", default=f"pangeo-forge-scratch/cache/{name}.zarr"
     )
-    target_location = Parameter("target_location", default=f"gs://pangeo-forge-scratch/{name}.zarr")
+    target_location = Parameter("target_location", default=f"pangeo-forge-scratch/{name}.zarr")
 
     @property
     def sources(self):
@@ -67,8 +67,8 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     def get_test_parameters(self, defaults: dict):
         parameters = dict(defaults)  # copy the defaults
         parameters["days"] = defaults["days"][:5]
-        parameters["cache_location"] = "memory://cache/"
-        parameters["target_location"] = "memory://target.zarr"
+        parameters["cache_location"] = "cache/"
+        parameters["target_location"] = "target.zarr"
         return parameters
 
     # The `Flow` definition is where you assemble your pipeline. We recommend using
