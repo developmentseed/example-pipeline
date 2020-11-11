@@ -16,19 +16,34 @@ from prefect import Flow, Parameter, task, unmapped
 # A Task is one step in your pipeline. The `source_url` takes a day
 # like '2020-01-01' and returns the URL of the raw data.
 
+def noaa_sst_avhrr_url_pattern(timespan: str) -> str:
+    return (
+        "https://www.ncei.noaa.gov/data/"
+        "sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr/"
+        "{timespan:%Y%m}/oisst-avhrr-v02r01.{timespan:%Y%m%d}.nc"
+    )
+
+def gesdisc_gpm_imerg_url_pattern(timespan: str) -> str:
+    # https://gpm1.gesdisc.eosdis.nasa.gov/data/GPM_L3/GPM_3IMERGHH.06/2000/153/3B-HHR.MS.MRG.3IMERG.20000601-S000000-E002959.0000.V06B.HDF5
+    hours_pattern = "{timespan:%H}"
+    hours = hours_pattern.format(timespan=timespan)
+    seconds = int(hours) * 60
+    return (
+        "https://gpm1.gesdisc.eosdis.nasa.gov/data/"
+        "/GPM_L3/GPM_3IMERGHH.06/"
+        "{timespan:%Y}/{timespan:%j}/3B-HHR.MS.MRG.3IMERG.{timespan:%Y}{timespan:%m}{timespan:%d}-S000000-"
+        # this won't work (seconds)
+        "E{timespan:%h}{timespan:%m}{timespan:%s}.{seconds}.V06B.HDF5"        
+    )
 
 @task
-def source_url(day: str) -> str:
+def source_url(timespan: str) -> str:
     """
     Format the URL for a specific day.
     """
-    day = pd.Timestamp(day)
-    source_url_pattern = (
-        "https://www.ncei.noaa.gov/data/"
-        "sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr/"
-        "{day:%Y%m}/oisst-avhrr-v02r01.{day:%Y%m%d}.nc"
-    )
-    return source_url_pattern.format(day=day)
+    timespan = pd.Timestamp(timespan)
+    source_url_pattern = gesdisc_gpm_imerg_url_pattern(timespan)
+    return source_url_pattern.format(timespan=timespan)
 
 
 # All pipelines in pangeo-forge must inherit from pangeo_forge.AbstractPipeline
@@ -48,6 +63,10 @@ class Pipeline(pangeo_forge.AbstractPipeline):
         # All parameters have a "name" and should have a default value.
         "days",
         default=pd.date_range("1981-09-01", "1981-09-10", freq="D").strftime("%Y-%m-%d").tolist(),
+    )
+    half_hours = Paramter(
+        "half_hours"
+        default=pd.date_range("2000-06-01 00:29:59", "2000-07-01 00:29:59", freq="0.5H").strftime("%Y-%m-%d %H:%M:%S").tolist()
     )
     cache_location = Parameter(
         "cache_location", default=f"pangeo-forge-scratch/cache/{name}.zarr"
