@@ -56,8 +56,8 @@ class Pipeline(pangeo_forge.AbstractPipeline):
             "n_workers": 1,
             "scheduler_cpu": 256,
             "scheduler_mem": 512,
-            "worker_cpu": 256,
-            "worker_mem": 512,
+            "worker_cpu": 1024,
+            "worker_mem": 2048,
             "scheduler_timeout": "15 minutes",
         },
     )
