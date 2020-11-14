@@ -1,0 +1,3 @@
+git+https://github.com/developmentseed/pangeo-forge
+dask_cloudprovider
+boto3

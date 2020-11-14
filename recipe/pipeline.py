@@ -7,6 +7,9 @@ from pangeo_forge.tasks.http import download
 from pangeo_forge.tasks.xarray import combine_and_write
 from pangeo_forge.tasks.zarr import consolidate_metadata
 from prefect import Flow, Parameter, task, unmapped
+from prefect.environments import LocalEnvironment
+from prefect.environments.storage import S3
+from prefect.engine.executors import DaskExecutor
 
 # We use Prefect to manage pipelines. In this pipeline we'll see
 # * Tasks: https://docs.prefect.io/core/concepts/tasks.html
@@ -15,7 +18,6 @@ from prefect import Flow, Parameter, task, unmapped
 
 # A Task is one step in your pipeline. The `source_url` takes a day
 # like '2020-01-01' and returns the URL of the raw data.
-
 
 @task
 def source_url(day: str) -> str:
@@ -41,6 +43,28 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     # repo is the URL of the GitHub repository this will be stored at.
     repo = "pangeo-forge/example-pipeline"
 
+    executor = DaskExecutor(
+        cluster_class="dask_cloudprovider.FargateCluster",
+        cluster_kwargs={
+            "image": "552819999234.dkr.ecr.us-west-2.amazonaws.com/pangeoforgeedstarsbdd50ad8-xutm9k0eec0y",
+            "cluster_arn": "arn:aws:ecs:us-west-2:552819999234:cluster/pangeo-forge-cluster-cluster611F8AFF-FXH7MKgq80pR",
+            "task_role_arn": "arn:aws:iam::552819999234:role/pangeo-forge-cluster-taskRole4695B131-1A9FZ6LJAMGGR",
+            "execution_role_arn": "arn:aws:iam::552819999234:role/pangeo-forge-cluster-taskExecutionRole505FC329-W32D8BO43LJV",
+            "security_groups": [
+                "sg-09a5ee69d3671fa12"
+            ],
+            "n_workers": 1,
+            "scheduler_cpu": 256,
+            "scheduler_mem": 512,
+            "worker_cpu": 256,
+            "worker_mem": 512,
+            "scheduler_timeout": "15 minutes",
+        },
+    )
+    environment = LocalEnvironment(
+        executor=executor,
+    )
+    storage = S3(bucket="pangeo-forge-cluster-pangeoforgeedstarsstoragece5-18wtdurqlxlsy")
     # Some pipelines take parameters. These are things like subsets of the
     # data to select or where to write the data.
     # See https://docs.prefect.io/core/concepts/parameters.htm for more
@@ -50,9 +74,9 @@ class Pipeline(pangeo_forge.AbstractPipeline):
         default=pd.date_range("1981-09-01", "1981-09-10", freq="D").strftime("%Y-%m-%d").tolist(),
     )
     cache_location = Parameter(
-        "cache_location", default=f"gs://pangeo-forge-scratch/cache/{name}.zarr"
+        "cache_location", default=f"s3://pangeo-forge-cluster-pangeoforgeedstarsscratch82c-1njs2mewbiv9j/cache/{name}.zarr"
     )
-    target_location = Parameter("target_location", default=f"gs://pangeo-forge-scratch/{name}.zarr")
+    target_location = Parameter("target_location", default=f"s3://pangeo-forge-cluster-pangeoforgeedstarsscratch82c-1njs2mewbiv9j/{name}.zarr")
 
     @property
     def sources(self):
@@ -76,7 +100,11 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     # Everything should happen in a `with Flow(...) as flow` block, and a `flow` should be returned.
     @property
     def flow(self):
-        with Flow(self.name) as flow:
+        with Flow(
+            self.name,
+            environment=self.environment,
+            storage=self.storage,
+        ) as flow:
             # Use map the `source_url` task to each day. This returns a mapped output,
             # a list of string URLS. See
             # https://docs.prefect.io/core/concepts/mapping.html#prefect-approach
@@ -114,3 +142,4 @@ class Pipeline(pangeo_forge.AbstractPipeline):
 # pangeo-forge and Prefect require that a `flow` be present at the top-level
 # of this module.
 flow = Pipeline().flow
+flow.register(project_name="edstars")
