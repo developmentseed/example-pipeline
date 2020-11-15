@@ -1,5 +1,7 @@
 # There are many comments in this example. Remove them when you've
 # finalized your pipeline.
+from bs4 import BeautifulSoup
+import os
 import pandas as pd
 import pangeo_forge
 import pangeo_forge.utils
@@ -7,6 +9,7 @@ from pangeo_forge.tasks.http import download
 from pangeo_forge.tasks.xarray import combine_and_write
 from pangeo_forge.tasks.zarr import consolidate_metadata
 from prefect import Flow, Parameter, task, unmapped
+import requests
 
 # We use Prefect to manage pipelines. In this pipeline we'll see
 # * Tasks: https://docs.prefect.io/core/concepts/tasks.html
@@ -16,35 +19,38 @@ from prefect import Flow, Parameter, task, unmapped
 # A Task is one step in your pipeline. The `source_url` takes a day
 # like '2020-01-01' and returns the URL of the raw data.
 
-def noaa_sst_avhrr_url_pattern(timespan: str) -> str:
+def noaa_sst_avhrr_url_pattern(datetime_str: str) -> str:
     return (
         "https://www.ncei.noaa.gov/data/"
         "sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr/"
-        "{timespan:%Y%m}/oisst-avhrr-v02r01.{timespan:%Y%m%d}.nc"
+        "{datetime_str:%Y%m}/oisst-avhrr-v02r01.{datetime_str:%Y%m%d}.nc"
     )
 
-def gesdisc_gpm_imerg_url_pattern(timespan: str) -> str:
+def list_files(url: str, ext='') -> list:
+    page = requests.get(url).text
+    soup = BeautifulSoup(page, 'html.parser')
+    return [url + '/' + node.get('href') for node in soup.find_all('a') if node.get('href').endswith(ext)]
+
+def gesdisc_gpm_imerg_dir_pattern(pd_datetime: str) -> str:
     # https://gpm1.gesdisc.eosdis.nasa.gov/data/GPM_L3/GPM_3IMERGHH.06/2000/153/3B-HHR.MS.MRG.3IMERG.20000601-S000000-E002959.0000.V06B.HDF5
-    hours_pattern = "{timespan:%H}"
-    hours = hours_pattern.format(timespan=timespan)
-    seconds = int(hours) * 60
     return (
         "https://gpm1.gesdisc.eosdis.nasa.gov/data/"
-        "/GPM_L3/GPM_3IMERGHH.06/"
-        "{timespan:%Y}/{timespan:%j}/3B-HHR.MS.MRG.3IMERG.{timespan:%Y}{timespan:%m}{timespan:%d}-S000000-"
-        # this won't work (seconds)
-        "E{timespan:%h}{timespan:%m}{timespan:%s}.{seconds}.V06B.HDF5"        
+        "GPM_L3/GPM_3IMERGHH.06/"
+        "{pd_datetime:%Y}/{pd_datetime:%j}/"
     )
 
-@task
-def source_url(timespan: str) -> str:
+#@task
+def source_url(datetime_str: str) -> str:
     """
     Format the URL for a specific day.
     """
-    timespan = pd.Timestamp(timespan)
-    source_url_pattern = gesdisc_gpm_imerg_url_pattern(timespan)
-    return source_url_pattern.format(timespan=timespan)
-
+    pd_datetime = pd.Timestamp(datetime_str)
+    source_url_pattern = gesdisc_gpm_imerg_dir_pattern(pd_datetime)
+    url = source_url_pattern.format(pd_datetime=pd_datetime)
+    if os.path.isfile(url):
+        return url
+    else:
+        return list_files(directory, ext='HDF5')
 
 # All pipelines in pangeo-forge must inherit from pangeo_forge.AbstractPipeline
 
@@ -62,11 +68,7 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     days = Parameter(
         # All parameters have a "name" and should have a default value.
         "days",
-        default=pd.date_range("1981-09-01", "1981-09-10", freq="D").strftime("%Y-%m-%d").tolist(),
-    )
-    half_hours = Paramter(
-        "half_hours"
-        default=pd.date_range("2000-06-01 00:29:59", "2000-07-01 00:29:59", freq="0.5H").strftime("%Y-%m-%d %H:%M:%S").tolist()
+        default=pd.date_range("2000-06-01", "2000-06-03", freq="D").strftime("%Y-%m-%d").tolist(),
     )
     cache_location = Parameter(
         "cache_location", default=f"pangeo-forge-scratch/cache/{name}.zarr"
@@ -101,6 +103,9 @@ class Pipeline(pangeo_forge.AbstractPipeline):
             # https://docs.prefect.io/core/concepts/mapping.html#prefect-approach
             # for more. We'll have one output URL per day.
             sources = source_url.map(self.days)
+            if type(sources[0]) == list:
+                # since for GESDISC days returns a list of files from a directory
+                sources = [y for x in sources for y in x]
 
             # Map the `download` task (provided by prefect) to download the raw data
             # into a cache.
@@ -132,4 +137,8 @@ class Pipeline(pangeo_forge.AbstractPipeline):
 
 # pangeo-forge and Prefect require that a `flow` be present at the top-level
 # of this module.
-flow = Pipeline().flow
+# flow = Pipeline().flow
+# days = pd.date_range("2000-06-01", "2000-06-03", freq="D").strftime("%Y-%m-%d").tolist()
+# list_of_lists = list(map(source_url, days))
+# merged = [y for x in list_of_lists for y in x]
+# print(merged)
