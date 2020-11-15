@@ -8,7 +8,7 @@ import pangeo_forge.utils
 from pangeo_forge.tasks.http import download
 from pangeo_forge.tasks.xarray import combine_and_write
 from pangeo_forge.tasks.zarr import consolidate_metadata
-from prefect import Flow, Parameter, task, unmapped
+from prefect import Flow, Parameter, task, unmapped, flatten
 import requests
 
 # We use Prefect to manage pipelines. In this pipeline we'll see
@@ -29,7 +29,8 @@ def noaa_sst_avhrr_url_pattern(datetime_str: str) -> str:
 def list_files(url: str, ext='') -> list:
     page = requests.get(url).text
     soup = BeautifulSoup(page, 'html.parser')
-    return [url + '/' + node.get('href') for node in soup.find_all('a') if node.get('href').endswith(ext)]
+    url = [url + '/' + node.get('href') for node in soup.find_all('a') if node.get('href').endswith(ext)]
+    return url
 
 def gesdisc_gpm_imerg_dir_pattern(pd_datetime: str) -> str:
     # https://gpm1.gesdisc.eosdis.nasa.gov/data/GPM_L3/GPM_3IMERGHH.06/2000/153/3B-HHR.MS.MRG.3IMERG.20000601-S000000-E002959.0000.V06B.HDF5
@@ -39,7 +40,7 @@ def gesdisc_gpm_imerg_dir_pattern(pd_datetime: str) -> str:
         "{pd_datetime:%Y}/{pd_datetime:%j}/"
     )
 
-#@task
+@task
 def source_url(datetime_str: str) -> str:
     """
     Format the URL for a specific day.
@@ -50,7 +51,8 @@ def source_url(datetime_str: str) -> str:
     if os.path.isfile(url):
         return url
     else:
-        return list_files(directory, ext='HDF5')
+        urls = list_files(url, ext='HDF5')
+        return urls
 
 # All pipelines in pangeo-forge must inherit from pangeo_forge.AbstractPipeline
 
@@ -68,10 +70,13 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     days = Parameter(
         # All parameters have a "name" and should have a default value.
         "days",
-        default=pd.date_range("2000-06-01", "2000-06-03", freq="D").strftime("%Y-%m-%d").tolist(),
+        default=pd.date_range("2000-06-01", "2000-06-01", freq="D").strftime("%Y-%m-%d").tolist(),
     )
     cache_location = Parameter(
         "cache_location", default=f"pangeo-forge-scratch/cache/{name}.zarr"
+    )
+    auth = Parameter(
+        "auth", default=('usename', 'password')
     )
     target_location = Parameter("target_location", default=f"pangeo-forge-scratch/{name}.zarr")
 
@@ -90,6 +95,7 @@ class Pipeline(pangeo_forge.AbstractPipeline):
         parameters["days"] = defaults["days"][:5]
         parameters["cache_location"] = "cache/"
         parameters["target_location"] = "target.zarr"
+        parameters["auth"] = (os.getenv('EARTHDATA_USERNAME'), os.getenv('EARTHDATA_PASSWORD'))
         return parameters
 
     # The `Flow` definition is where you assemble your pipeline. We recommend using
@@ -103,18 +109,19 @@ class Pipeline(pangeo_forge.AbstractPipeline):
             # https://docs.prefect.io/core/concepts/mapping.html#prefect-approach
             # for more. We'll have one output URL per day.
             sources = source_url.map(self.days)
-            if type(sources[0]) == list:
-                # since for GESDISC days returns a list of files from a directory
-                sources = [y for x in sources for y in x]
 
             # Map the `download` task (provided by prefect) to download the raw data
             # into a cache.
             # Mapped outputs (sources) can be fed straight into another Task.map call.
             # If an input is just a regular argument that's not a mapping, it must
-            # be wrapepd in `prefect.unmapped`.
+            # be wrapped in `prefect.unmapped`.
             # https://docs.prefect.io/core/concepts/mapping.html#unmapped-inputs
             # nc_sources will be a list of cached URLs, one per input day.
-            nc_sources = download.map(sources, cache_location=unmapped(self.cache_location))
+            nc_sources = download.map(
+                flatten(sources),
+                cache_location=unmapped(self.cache_location),
+                auth=unmapped(self.auth)
+            )
 
             # The individual files would be a bit too small for analysis. We'll use
             # pangeo_forge.utils.chunk to batch them up. We can pass mapped outputs
@@ -137,7 +144,7 @@ class Pipeline(pangeo_forge.AbstractPipeline):
 
 # pangeo-forge and Prefect require that a `flow` be present at the top-level
 # of this module.
-# flow = Pipeline().flow
+flow = Pipeline().flow
 # days = pd.date_range("2000-06-01", "2000-06-03", freq="D").strftime("%Y-%m-%d").tolist()
 # list_of_lists = list(map(source_url, days))
 # merged = [y for x in list_of_lists for y in x]
