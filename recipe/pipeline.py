@@ -32,13 +32,13 @@ def list_files(url: str, ext='') -> list:
     url = [url + '/' + node.get('href') for node in soup.find_all('a') if node.get('href').endswith(ext)]
     return url
 
-def gesdisc_gpm_imerg_dir_pattern(pd_datetime: str) -> str:
-    # https://gpm1.gesdisc.eosdis.nasa.gov/data/GPM_L3/GPM_3IMERGHH.06/2000/153/3B-HHR.MS.MRG.3IMERG.20000601-S000000-E002959.0000.V06B.HDF5
-    return (
-        "https://gpm1.gesdisc.eosdis.nasa.gov/data/"
-        "GPM_L3/GPM_3IMERGHH.06/"
-        "{pd_datetime:%Y}/{pd_datetime:%j}/"
-    )
+gpm_host = "https://gpm1.gesdisc.eosdis.nasa.gov"
+gpm_l3_imerg_path = "data/GPM_L3"
+gpm_l3_imerg_daily = "GPM_3IMERGDF.06/{pd_datetime:%Y}/{pd_datetime:%m}/"
+gpm_l3_imerg_half_hourly = "GPM_3IMERGHH.06/{pd_datetime:%Y}/{pd_datetime:%j}/"
+def gesdisc_gpm_imerg_dir_pattern(pd_datetime: str, product: str) -> str:
+    product_path = gpm_l3_imerg_daily if product == 'daily' else gpm_l3_imerg_half_hourly
+    return (f"{gpm_host}/{gpm_l3_imerg_path}/{product_path}")
 
 @task
 def source_url(datetime_str: str) -> str:
@@ -46,7 +46,7 @@ def source_url(datetime_str: str) -> str:
     Format the URL for a specific day.
     """
     pd_datetime = pd.Timestamp(datetime_str)
-    source_url_pattern = gesdisc_gpm_imerg_dir_pattern(pd_datetime)
+    source_url_pattern = gesdisc_gpm_imerg_dir_pattern(pd_datetime, 'half-hourly')
     url = source_url_pattern.format(pd_datetime=pd_datetime)
     if os.path.isfile(url):
         return url
@@ -70,7 +70,7 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     days = Parameter(
         # All parameters have a "name" and should have a default value.
         "days",
-        default=pd.date_range("2000-06-01", "2000-06-01", freq="D").strftime("%Y-%m-%d").tolist(),
+        default=pd.date_range("2000-06-01", "2000-06-02", freq="D").strftime("%Y-%m-%d").tolist(),
     )
     cache_location = Parameter(
         "cache_location", default=f"pangeo-forge-scratch/cache/{name}.zarr"
