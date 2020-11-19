@@ -120,7 +120,8 @@ class Pipeline(pangeo_forge.AbstractPipeline):
             nc_sources = download.map(
                 flatten(sources),
                 cache_location=unmapped(self.cache_location),
-                auth=unmapped(self.auth)
+                auth=unmapped(self.auth),
+                use_source_filename=unmapped(True)
             )
 
             # The individual files would be a bit too small for analysis. We'll use
