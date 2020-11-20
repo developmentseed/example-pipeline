@@ -47,16 +47,22 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     # repo is the URL of the GitHub repository this will be stored at.
     repo = "notused"
     image = os.getenv("IMAGE")
+    vpc = os.getenv("VPC")
+    security_group = os.getenv("SECURITY_GROUP")
     cluster_arn = os.getenv("CLUSTER_ARN")
     task_role_arn = os.getenv("TASK_ROLE_ARN")
     execution_role_arn = os.getenv("EXECUTION_ROLE_ARN")
     executor = DaskExecutor(
-        cluster_class="dask_cloudprovider.FargateCluster",
+        cluster_class="dask_cloudprovider.aws.FargateCluster",
         cluster_kwargs={
             "image": image,
+            "vpc": vpc,
             "cluster_arn": cluster_arn,
             "task_role_arn": task_role_arn,
             "execution_role_arn": execution_role_arn,
+            "security_groups": [
+                security_group
+            ],
             "n_workers": 1,
             "scheduler_cpu": 256,
             "scheduler_mem": 512,
