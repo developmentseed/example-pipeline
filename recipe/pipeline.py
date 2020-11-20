@@ -10,6 +10,9 @@ from prefect import Flow, Parameter, task, unmapped
 from prefect.environments import LocalEnvironment
 from prefect.environments.storage import S3
 from prefect.engine.executors import DaskExecutor
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 # We use Prefect to manage pipelines. In this pipeline we'll see
 # * Tasks: https://docs.prefect.io/core/concepts/tasks.html
@@ -18,6 +21,7 @@ from prefect.engine.executors import DaskExecutor
 
 # A Task is one step in your pipeline. The `source_url` takes a day
 # like '2020-01-01' and returns the URL of the raw data.
+
 
 @task
 def source_url(day: str) -> str:
@@ -41,18 +45,18 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     # name is the pipeline name, typically the name of the dataset.
     name = "example"
     # repo is the URL of the GitHub repository this will be stored at.
-    repo = "pangeo-forge/example-pipeline"
-
+    repo = "notused"
+    image = os.getenv("IMAGE")
+    cluster_arn = os.getenv("CLUSTER_ARN")
+    task_role_arn = os.getenv("TASK_ROLE_ARN")
+    execution_role_arn = os.getenv("EXECUTION_ROLE_ARN")
     executor = DaskExecutor(
         cluster_class="dask_cloudprovider.FargateCluster",
         cluster_kwargs={
-            "image": "552819999234.dkr.ecr.us-west-2.amazonaws.com/pangeoforgeedstarsbdd50ad8-xutm9k0eec0y",
-            "cluster_arn": "arn:aws:ecs:us-west-2:552819999234:cluster/pangeo-forge-cluster-cluster611F8AFF-FXH7MKgq80pR",
-            "task_role_arn": "arn:aws:iam::552819999234:role/pangeo-forge-cluster-taskRole4695B131-1A9FZ6LJAMGGR",
-            "execution_role_arn": "arn:aws:iam::552819999234:role/pangeo-forge-cluster-taskExecutionRole505FC329-W32D8BO43LJV",
-            "security_groups": [
-                "sg-09a5ee69d3671fa12"
-            ],
+            "image": image,
+            "cluster_arn": cluster_arn,
+            "task_role_arn": task_role_arn,
+            "execution_role_arn": execution_role_arn,
             "n_workers": 1,
             "scheduler_cpu": 256,
             "scheduler_mem": 512,

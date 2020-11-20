@@ -1,3 +1,8 @@
 git+https://github.com/developmentseed/pangeo-forge
 dask_cloudprovider
 boto3
+s3fs
+h5py
+h5netcdf
+python-dotenv
+prefect
