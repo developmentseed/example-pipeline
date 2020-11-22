@@ -43,7 +43,7 @@ def source_url(day: str) -> str:
 class Pipeline(pangeo_forge.AbstractPipeline):
     # You must define a few pieces of metadata in your pipeline.
     # name is the pipeline name, typically the name of the dataset.
-    name = "example"
+    name = os.getenv("FLOW_NAME")
     # repo is the URL of the GitHub repository this will be stored at.
     repo = "notused"
     image = os.getenv("IMAGE")
@@ -74,7 +74,7 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     environment = LocalEnvironment(
         executor=executor,
     )
-    storage = S3(bucket="pangeo-forge-cluster-pangeoforgeedstarsstoragece5-18wtdurqlxlsy")
+    storage = S3(bucket=os.getenv("STORAGE_BUCKET"))
     # Some pipelines take parameters. These are things like subsets of the
     # data to select or where to write the data.
     # See https://docs.prefect.io/core/concepts/parameters.htm for more
@@ -84,9 +84,9 @@ class Pipeline(pangeo_forge.AbstractPipeline):
         default=pd.date_range("1981-09-01", "1981-09-10", freq="D").strftime("%Y-%m-%d").tolist(),
     )
     cache_location = Parameter(
-        "cache_location", default=f"s3://pangeo-forge-cluster-pangeoforgeedstarsscratch82c-1njs2mewbiv9j/cache/{name}.zarr"
+        "cache_location", default=f"s3://{os.getenv('SCRATCH_BUCKET')}/cache/{name}.zarr"
     )
-    target_location = Parameter("target_location", default=f"s3://pangeo-forge-cluster-pangeoforgeedstarsscratch82c-1njs2mewbiv9j/{name}.zarr")
+    target_location = Parameter("target_location", default=f"s3://{os.getenv('STORAGE_BUCKET')}/{name}.zarr")
 
     @property
     def sources(self):
