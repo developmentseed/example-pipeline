@@ -1,4 +1,4 @@
-/Users/aimeebarciauskas/DevSeed/pangeo-forge-projects/pangeo-forge
+git+https://github.com/developmentseed/pangeo-forge
 dask_cloudprovider[aws]
 bs4
 boto3

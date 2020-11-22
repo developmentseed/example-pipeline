@@ -104,7 +104,7 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     days = Parameter(
         # All parameters have a "name" and should have a default value.
         "days",
-        default=pd.date_range("2000-06-01", "2000-06-02", freq="D").strftime("%Y-%m-%d").tolist(),
+        default=pd.date_range("2000-06-01", "2000-06-01", freq="D").strftime("%Y-%m-%d").tolist(),
     )
     cache_location = Parameter(
         "cache_location", default=f"s3://{os.getenv('SCRATCH_BUCKET')}/cache/{name}.zarr"
@@ -174,6 +174,7 @@ class Pipeline(pangeo_forge.AbstractPipeline):
                 unmapped(self.target_location),
                 append_dim=unmapped("time"),
                 concat_dim=unmapped("time"),
+                group=unmapped('Grid')
             )
 
             # Consolidate the metadata for the final dataset.
