@@ -1,8 +1,10 @@
-git+https://github.com/developmentseed/pangeo-forge
+/Users/aimeebarciauskas/DevSeed/pangeo-forge-projects/pangeo-forge
 dask_cloudprovider[aws]
+bs4
 boto3
 s3fs
 h5py
 h5netcdf
 python-dotenv
 prefect
+requests

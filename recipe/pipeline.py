@@ -1,17 +1,20 @@
 # There are many comments in this example. Remove them when you've
 # finalized your pipeline.
+from bs4 import BeautifulSoup
+import os
 import pandas as pd
 import pangeo_forge
 import pangeo_forge.utils
 from pangeo_forge.tasks.http import download
 from pangeo_forge.tasks.xarray import combine_and_write
 from pangeo_forge.tasks.zarr import consolidate_metadata
-from prefect import Flow, Parameter, task, unmapped
+from prefect import Flow, Parameter, task, unmapped, flatten
 from prefect.environments import LocalEnvironment
 from prefect.environments.storage import S3
 from prefect.engine.executors import DaskExecutor
 from dotenv import load_dotenv
 import os
+import requests
 load_dotenv()
 
 # We use Prefect to manage pipelines. In this pipeline we'll see
@@ -22,20 +25,40 @@ load_dotenv()
 # A Task is one step in your pipeline. The `source_url` takes a day
 # like '2020-01-01' and returns the URL of the raw data.
 
+def noaa_sst_avhrr_url_pattern(datetime_str: str) -> str:
+    return (
+        "https://www.ncei.noaa.gov/data/"
+        "sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr/"
+        "{datetime_str:%Y%m}/oisst-avhrr-v02r01.{datetime_str:%Y%m%d}.nc"
+    )
+
+def list_files(url: str, ext='') -> list:
+    page = requests.get(url).text
+    soup = BeautifulSoup(page, 'html.parser')
+    url = [url + '/' + node.get('href') for node in soup.find_all('a') if node.get('href').endswith(ext)]
+    return url
+
+gpm_host = "https://gpm1.gesdisc.eosdis.nasa.gov"
+gpm_l3_imerg_path = "data/GPM_L3"
+gpm_l3_imerg_daily = "GPM_3IMERGDF.06/{pd_datetime:%Y}/{pd_datetime:%m}/"
+gpm_l3_imerg_half_hourly = "GPM_3IMERGHH.06/{pd_datetime:%Y}/{pd_datetime:%j}/"
+def gesdisc_gpm_imerg_dir_pattern(pd_datetime: str, product: str) -> str:
+    product_path = gpm_l3_imerg_daily if product == 'daily' else gpm_l3_imerg_half_hourly
+    return (f"{gpm_host}/{gpm_l3_imerg_path}/{product_path}")
 
 @task
-def source_url(day: str) -> str:
+def source_url(datetime_str: str) -> str:
     """
     Format the URL for a specific day.
     """
-    day = pd.Timestamp(day)
-    source_url_pattern = (
-        "https://www.ncei.noaa.gov/data/"
-        "sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr/"
-        "{day:%Y%m}/oisst-avhrr-v02r01.{day:%Y%m%d}.nc"
-    )
-    return source_url_pattern.format(day=day)
-
+    pd_datetime = pd.Timestamp(datetime_str)
+    source_url_pattern = gesdisc_gpm_imerg_dir_pattern(pd_datetime, 'half-hourly')
+    url = source_url_pattern.format(pd_datetime=pd_datetime)
+    if os.path.isfile(url):
+        return url
+    else:
+        urls = list_files(url, ext='HDF5')
+        return urls
 
 # All pipelines in pangeo-forge must inherit from pangeo_forge.AbstractPipeline
 
@@ -72,7 +95,7 @@ class Pipeline(pangeo_forge.AbstractPipeline):
         },
     )
     environment = LocalEnvironment(
-        executor=executor,
+        #executor=executor,
     )
     storage = S3(bucket=os.getenv("STORAGE_BUCKET"))
     # Some pipelines take parameters. These are things like subsets of the
@@ -81,12 +104,16 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     days = Parameter(
         # All parameters have a "name" and should have a default value.
         "days",
-        default=pd.date_range("1981-09-01", "1981-09-10", freq="D").strftime("%Y-%m-%d").tolist(),
+        default=pd.date_range("2000-06-01", "2000-06-02", freq="D").strftime("%Y-%m-%d").tolist(),
     )
     cache_location = Parameter(
         "cache_location", default=f"s3://{os.getenv('SCRATCH_BUCKET')}/cache/{name}.zarr"
     )
     target_location = Parameter("target_location", default=f"s3://{os.getenv('STORAGE_BUCKET')}/{name}.zarr")
+
+    auth = Parameter(
+        "auth", default=('usename', 'password')
+    )
 
     @property
     def sources(self):
@@ -101,8 +128,9 @@ class Pipeline(pangeo_forge.AbstractPipeline):
     def get_test_parameters(self, defaults: dict):
         parameters = dict(defaults)  # copy the defaults
         parameters["days"] = defaults["days"][:5]
-        parameters["cache_location"] = "memory://cache/"
-        parameters["target_location"] = "memory://target.zarr"
+        parameters["cache_location"] = "cache/"
+        parameters["target_location"] = "target.zarr"
+        parameters["auth"] = (os.getenv('EARTHDATA_USERNAME'), os.getenv('EARTHDATA_PASSWORD'))
         return parameters
 
     # The `Flow` definition is where you assemble your pipeline. We recommend using
@@ -125,10 +153,15 @@ class Pipeline(pangeo_forge.AbstractPipeline):
             # into a cache.
             # Mapped outputs (sources) can be fed straight into another Task.map call.
             # If an input is just a regular argument that's not a mapping, it must
-            # be wrapepd in `prefect.unmapped`.
+            # be wrapped in `prefect.unmapped`.
             # https://docs.prefect.io/core/concepts/mapping.html#unmapped-inputs
             # nc_sources will be a list of cached URLs, one per input day.
-            nc_sources = download.map(sources, cache_location=unmapped(self.cache_location))
+            nc_sources = download.map(
+                flatten(sources),
+                cache_location=unmapped(self.cache_location),
+                auth=unmapped(self.auth),
+                use_source_filename=unmapped(True)
+            )
 
             # The individual files would be a bit too small for analysis. We'll use
             # pangeo_forge.utils.chunk to batch them up. We can pass mapped outputs
